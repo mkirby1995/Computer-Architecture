@@ -5,15 +5,61 @@ import sys
 HLT = 0b00000001
 LDI = 0b10000010
 PRN = 0b01000111
+MUL = 0b10100010
+PUSH = 0b01000101
+POP = 0b01000110
+
+SP = 7
 
 class CPU:
     """Main CPU class."""
 
     def __init__(self):
         """Construct a new CPU."""
-        memory = [0] * (256 * 8)
-        register = [0] * 8
-        PC = []
+        self.memory = [0] * (256 * 8)
+        self.register = [0] * 8
+        self.PC = 0
+        self.running = True
+        self.branch_table = {
+            HLT: self.op_HLT,
+            LDI: self.op_LDI,
+            PRN: self.op_PRN,
+            MUL: self.op_MUL,
+            PUSH: self.op_PUSH,
+            POP: self.op_POP
+        }
+
+    def op_HLT(self, operand_a, operand_b):
+        self.running = False
+
+    def op_LDI(self, operand_a, operand_b):
+        self.register[operand_a] = operand_b
+        self.PC += 3
+
+    def op_PRN(self, operand_a, operand_b):
+        print(self.register[operand_a])
+        self.PC += 2
+
+    def op_MUL(self, operand_a, operand_b):
+        self.alu('MUL', operand_a, operand_b)
+        self.PC += 3
+
+    def op_PUSH(self, operand_a, operand_b):
+        self.push(self.register[operand_a])
+        self.PC += 2
+
+    def op_POP(self, operand_a, operand_b):
+        self.register[operand_a] = self.pop()
+        self.PC += 2
+
+    def push(self, value):
+        self.register[SP] -= 1
+        self.ram_write(value, self.register[7])
+
+    def pop(self):
+        value = self.ram_read(self.register[7])
+        self.register[SP] += 1
+        return value
 
     def ram_read(self, address):
         return self.memory[address]
@@ -23,32 +69,26 @@ class CPU:
 
     def load(self):
         """Load a program into memory."""
-
         address = 0
+        with open(sys.argv[1]) as f:
+            for line in f:
+                comment_split = line.split("#")
+                num = comment_split[0].strip()
+                if num == '':
+                    continue
+                instruction = int(num, 2)
 
-        # For now, we've just hardcoded a program:
-
-        program = [
-            # From print8.ls8
-            0b10000010, # LDI R0,8
-            0b00000000,
-            0b00001000,
-            0b01000111, # PRN R0
-            0b00000000,
-            0b00000001, # HLT
-        ]
-
-        for instruction in program:
-            self.ram[address] = instruction
-            address += 1
+                self.memory[address] = instruction
+                address += 1
 
 
     def alu(self, op, reg_a, reg_b):
         """ALU operations."""
 
         if op == "ADD":
-            self.reg[reg_a] += self.reg[reg_b]
-        #elif op == "SUB": etc
+            self.register[reg_a] += self.register[reg_b]
+        elif op == "MUL":
+            self.register[reg_a] *= self.register[reg_b]
         else:
             raise Exception("Unsupported ALU operation")
 
@@ -68,32 +108,18 @@ class CPU:
         ), end='')
 
         for i in range(8):
-            print(" %02X" % self.reg[i], end='')
+            print(" %02X" % self.register[i], end='')
 
         print()
 
     def run(self):
         """Run the CPU."""
-        run = True
+        while self.running == True:
+            IR = self.ram_read(self.PC)
+            operand_a = self.ram_read(self.PC + 1)
+            operand_b = self.ram_read(self.PC + 2)
 
-        while run == True:
-            IR = ram_read(self.PC)
-
-            opcode = IR[:1]
-
-            if opcode == 00:
-                self.PC += 1
-            elif opcode == 1:
-                operand_a = ram_read(self.PC + 1)
-                self.PC += 2
-            elif opcode == 10:
-                operand_a = ram_read(self.PC + 1)
-                operand_b = ram_read(self.PC + 2)
-                self.PC += 3
-
-            if IR == HLT:
-                run = False
-            elif IR == LDI:
-                self.register[operand_b] = operand_a
-            elif IR == PRN:
-                print(self.register[operand_a])
+            if int(bin(IR), 2) in self.branch_table:
+                self.branch_table[IR](operand_a, operand_b)
+            else:
+                raise Exception(f"Invalid {int(bin(IR), 2)} not in branch table \t {list(self.branch_table.keys())}")
